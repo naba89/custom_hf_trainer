@@ -8,7 +8,7 @@ from torch.utils.data import Dataset
 from transformers import TrainingArguments
 from transformers.modeling_outputs import BaseModelOutput
 
-from custom_hf_trainer.custom_trainer import CustomTrainer
+from custom_hf_trainer import CustomTrainer
 
 
 # Dummy Dataset
