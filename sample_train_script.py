@@ -82,6 +82,7 @@ training_args = TrainingArguments(
     logging_strategy="no",
     eval_strategy="epoch",
     report_to="wandb",
+    dataloader_pin_memory=False
 )
 
 # get the extra loss indices from the model
