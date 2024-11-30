@@ -65,19 +65,24 @@ def compute_metrics(eval_pred, loss_index_mapping=None):
 os.environ["WANDB_PROJECT"] = "dummy_project"
 
 # Create dataset and model instances
-dataset = DummyDataset()
+dataset = DummyDataset(size=8000)
 model = DummyModel()
+
+persistent_workers = True  # set to True to enable persistent workers
 
 # Training arguments
 training_args = TrainingArguments(
     output_dir="./test_trainer",
-    run_name='test_trainer',
-    num_train_epochs=3,
+    run_name=f'dataloader_peristent_workers={persistent_workers}',
+    num_train_epochs=200,
     per_device_train_batch_size=16,
     per_device_eval_batch_size=16,
-    logging_steps=1,
-    eval_steps=5,
-    evaluation_strategy="steps",
+    dataloader_num_workers=8,
+    dataloader_persistent_workers=persistent_workers,
+    logging_strategy="no",
+    eval_strategy="epoch",
+    report_to="wandb",
+    dataloader_pin_memory=False
 )
 
 # get the extra loss indices from the model
