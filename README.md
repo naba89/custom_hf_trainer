@@ -1,5 +1,8 @@
 # Custom Hugging Face Trainer
 
+### Update 2024-11-30
+Bumped transformers version to 4.46.3
+
 ### Update 2024-01-17
 The `CustomTrainer` class now also provides a workaround for the fork-bomb issue in the original `Trainer` class when using persistent dataloading workers. Related issue: https://github.com/huggingface/transformers/issues/28469
 
