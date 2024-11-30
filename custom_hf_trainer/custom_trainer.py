@@ -1,22 +1,21 @@
-"""Copyright: Nabarun Goswami (2023)."""
+"""Copyright: Nabarun Goswami (2024)."""
 import math
 import time
 from typing import Dict, List, Optional, Union
 
 import datasets
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader, Dataset
 from transformers import Trainer, TrainerCallback, TrainingArguments, TrainerState, TrainerControl, \
-    is_torch_tpu_available, is_datasets_available
+    is_torch_xla_available, is_datasets_available
 from transformers.debug_utils import DebugOption
 from transformers.modeling_utils import unwrap_model
 from transformers.trainer_utils import speed_metrics
 from transformers.utils import logging
 
-
 logger = logging.get_logger(__name__)
 
-if is_torch_tpu_available(check_device=False):
+if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
     import torch_xla.debug.metrics as met
 
@@ -38,6 +37,66 @@ class CustomTrainer(Trainer):
             self.add_callback(AddExtraLossesToTrainerState(extra_losses))
 
         self.eval_dataloader = None
+
+    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+        if hasattr(self.control, 'extra_losses') and model.training:
+            loss, outputs = super().compute_loss(model, inputs, return_outputs=True)
+
+            if not isinstance(outputs, dict):
+                raise ValueError("The model output should be a dictionary or ModelOutput and not a tuple or list.")
+            for k, v in outputs.items():
+                if k in self.control.extra_losses:
+                    if v is not None:
+                        if self.args.n_gpu > 1:
+                            v = v.mean()
+                        self.control.extra_losses[k] += v.detach() / self.args.gradient_accumulation_steps
+
+            return (loss, outputs) if return_outputs else loss
+        else:
+            return super().compute_loss(model, inputs, return_outputs=return_outputs)
+
+    def _maybe_log_save_evaluate(self, tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval):
+        if self.control.should_log and self.state.global_step > self._globalstep_last_logged:
+            if is_torch_xla_available():
+                xm.mark_step()
+
+            logs: Dict[str, float] = {}
+
+            # all_gather + mean() to get average loss over all processes
+            tr_loss_scalar = self._nested_gather(tr_loss).mean().item()
+
+            # reset tr_loss to zero
+            tr_loss -= tr_loss
+
+            logs["loss"] = round(tr_loss_scalar / (self.state.global_step - self._globalstep_last_logged), 4)
+            if grad_norm is not None:
+                logs["grad_norm"] = grad_norm.detach().item() if isinstance(grad_norm, torch.Tensor) else grad_norm
+            logs["learning_rate"] = self._get_learning_rate()
+
+            if hasattr(self.control, 'extra_losses'):
+                for k, v in self.control.extra_losses.items():
+                    logs[k] = self._nested_gather(v).mean().item()
+                    # reset the loss
+                    self.control.extra_losses[k] -= self.control.extra_losses[k]
+
+                    logs[k] = round(logs[k] / (self.state.global_step - self._globalstep_last_logged), 4)
+
+            logs.update(unwrap_model(model).get_extra_logging_dict()
+                        if hasattr(unwrap_model(model), 'get_extra_logging_dict') else {})
+
+            self._total_loss_scalar += tr_loss_scalar
+            self._globalstep_last_logged = self.state.global_step
+            self.store_flos()
+
+            self.log(logs)
+
+        metrics = None
+        if self.control.should_evaluate:
+            metrics = self._evaluate(trial, ignore_keys_for_eval)
+
+        if self.control.should_save:
+            self._save_checkpoint(model, trial, metrics=metrics)
+            self.control = self.callback_handler.on_save(self.args, self.state, self.control)
 
     def _create_eval_dataloader(self, eval_dataset):
         logger.warning("Eval dataloader is being created (again)."
@@ -61,6 +120,7 @@ class CustomTrainer(Trainer):
         if not isinstance(eval_dataset, torch.utils.data.IterableDataset):
             dataloader_params["sampler"] = self._get_eval_sampler(eval_dataset)
             dataloader_params["drop_last"] = self.args.dataloader_drop_last
+            dataloader_params["prefetch_factor"] = self.args.dataloader_prefetch_factor
 
         return self.accelerator.prepare(DataLoader(eval_dataset, **dataloader_params))
 
@@ -99,88 +159,9 @@ class CustomTrainer(Trainer):
         else:
             return self.eval_dataloader
 
-    def compute_loss(self, model, inputs, return_outputs=False):
-        if hasattr(self.control, 'extra_losses') and model.training:
-            loss, outputs = super().compute_loss(model, inputs, return_outputs=True)
-
-            if not isinstance(outputs, dict):
-                raise ValueError("The model output should be a dictionary or ModelOutput and not a tuple or list.")
-            for k, v in outputs.items():
-                if k in self.control.extra_losses:
-                    if v is not None:
-                        if self.args.n_gpu > 1:
-                            v = v.mean()
-                        self.control.extra_losses[k] += v.detach() / self.args.gradient_accumulation_steps
-
-            return (loss, outputs) if return_outputs else loss
-        else:
-            return super().compute_loss(model, inputs, return_outputs=return_outputs)
-
-    def _maybe_log_save_evaluate(self, tr_loss, model, trial, epoch, ignore_keys_for_eval):
-        """ adapted from Trainer._maybe_log_save_evaluate to support logging extra losses
-        """
-        if self.control.should_log and self.state.global_step > self._globalstep_last_logged:
-            if is_torch_tpu_available():
-                xm.mark_step()
-
-            logs: Dict[str, float] = {}
-
-            # all_gather + mean() to get average loss over all processes
-            tr_loss_scalar = self._nested_gather(tr_loss).mean().item()
-
-            # reset tr_loss to zero
-            tr_loss -= tr_loss
-
-            logs["loss"] = round(tr_loss_scalar / (self.state.global_step - self._globalstep_last_logged), 4)
-
-            if hasattr(self.control, 'extra_losses'):
-                for k, v in self.control.extra_losses.items():
-                    logs[k] = self._nested_gather(v).mean().item()
-                    # reset the loss
-                    self.control.extra_losses[k] -= self.control.extra_losses[k]
-
-                    logs[k] = round(logs[k] / (self.state.global_step - self._globalstep_last_logged), 4)
-
-            logs["learning_rate"] = self._get_learning_rate()
-
-            logs.update(unwrap_model(model).get_extra_logging_dict()
-                        if hasattr(unwrap_model(model), 'get_extra_logging_dict') else {})
-
-            self._total_loss_scalar += tr_loss_scalar
-            self._globalstep_last_logged = self.state.global_step
-            self.store_flos()
-
-            self.log(logs)
-
-        metrics = None
-        if self.control.should_evaluate:
-            if isinstance(self.eval_dataset, dict):
-                metrics = {}
-                for eval_dataset_name, eval_dataset in self.eval_dataset.items():
-                    dataset_metrics = self.evaluate(
-                        eval_dataset=eval_dataset,
-                        ignore_keys=ignore_keys_for_eval,
-                        metric_key_prefix=f"eval_{eval_dataset_name}",
-                    )
-                    metrics.update(dataset_metrics)
-            else:
-                metrics = self.evaluate(ignore_keys=ignore_keys_for_eval)
-            self._report_to_hp_search(trial, self.state.global_step, metrics)
-
-            # Run delayed LR scheduler now that metrics are populated
-            if isinstance(self.lr_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
-                metric_to_check = self.args.metric_for_best_model
-                if not metric_to_check.startswith("eval_"):
-                    metric_to_check = f"eval_{metric_to_check}"
-                self.lr_scheduler.step(metrics[metric_to_check])
-
-        if self.control.should_save:
-            self._save_checkpoint(model, trial, metrics=metrics)
-            self.control = self.callback_handler.on_save(self.args, self.state, self.control)
-
     def evaluate(
         self,
-        eval_dataset: Optional[Union[str, Dict[str, Dataset]]] = None,
+        eval_dataset: Optional[Union[Dataset, str, Dict[str, Dataset]]] = None,
         ignore_keys: Optional[List[str]] = None,
         metric_key_prefix: str = "eval",
     ) -> Dict[str, float]:
@@ -223,12 +204,13 @@ class CustomTrainer(Trainer):
             dictionary also contains the epoch number which comes from the training state.
         """
         # handle multipe eval datasets
-        eval_dataset = eval_dataset if eval_dataset is not None else self.eval_dataset
+        override = eval_dataset is not None
+        eval_dataset = eval_dataset if override else self.eval_dataset
         if isinstance(eval_dataset, dict):
             metrics = {}
-            for eval_dataset_name in eval_dataset.keys():
+            for eval_dataset_name, _eval_dataset in eval_dataset.items():
                 dataset_metrics = self.evaluate(
-                    eval_dataset=eval_dataset_name,
+                    eval_dataset=eval_dataset_name if override else _eval_dataset,
                     ignore_keys=ignore_keys,
                     metric_key_prefix=f"{metric_key_prefix}_{eval_dataset_name}",
                 )
@@ -255,6 +237,8 @@ class CustomTrainer(Trainer):
         total_batch_size = self.args.eval_batch_size * self.args.world_size
         if f"{metric_key_prefix}_jit_compilation_time" in output.metrics:
             start_time += output.metrics[f"{metric_key_prefix}_jit_compilation_time"]
+        if f"{metric_key_prefix}_model_preparation_time" in output.metrics:
+            start_time += output.metrics[f"{metric_key_prefix}_model_preparation_time"]
         output.metrics.update(
             speed_metrics(
                 metric_key_prefix,
