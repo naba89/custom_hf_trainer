@@ -68,7 +68,7 @@ os.environ["WANDB_PROJECT"] = "dummy_project"
 dataset = DummyDataset(size=8000)
 model = DummyModel()
 
-persistent_workers = False  # set to True to enable persistent workers
+persistent_workers = True  # set to True to enable persistent workers
 
 # Training arguments
 training_args = TrainingArguments(
@@ -81,6 +81,7 @@ training_args = TrainingArguments(
     dataloader_persistent_workers=persistent_workers,
     logging_strategy="no",
     eval_strategy="epoch",
+    report_to="wandb",
 )
 
 # get the extra loss indices from the model
