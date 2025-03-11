@@ -13,9 +13,9 @@ setup(
     packages=find_packages(),
     install_requires=[
         'torch',
-        'transformers==4.46.3',
-        'accelerate==1.1.1',
-        'datasets==3.1.0',
+        'transformers==4.49.0',
+        'accelerate==1.4.0',
+        'datasets==3.3.2',
     ],
     classifiers=[
         'Programming Language :: Python :: 3',

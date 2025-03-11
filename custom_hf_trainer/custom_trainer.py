@@ -55,7 +55,7 @@ class CustomTrainer(Trainer):
         else:
             return super().compute_loss(model, inputs, return_outputs=return_outputs)
 
-    def _maybe_log_save_evaluate(self, tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval):
+    def _maybe_log_save_evaluate(self, tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval, start_time):
         if self.control.should_log and self.state.global_step > self._globalstep_last_logged:
             if is_torch_xla_available():
                 xm.mark_step()
@@ -88,7 +88,7 @@ class CustomTrainer(Trainer):
             self._globalstep_last_logged = self.state.global_step
             self.store_flos()
 
-            self.log(logs)
+            self.log(logs, start_time)
 
         metrics = None
         if self.control.should_evaluate:
