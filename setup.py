@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='custom_hf_trainer',
-    version='0.1.1',
+    version='0.1.2',
     author='Nabarun Goswami',
     author_email='nabarungoswami@mi.t.u-tokyo.ac.jp',
     description='A custom Hugging Face trainer for logging auxiliary losses',
@@ -12,7 +12,7 @@ setup(
     url='https://github.com/naba89/custom_hf_trainer',
     packages=find_packages(),
     install_requires=[
-        'torch',
+        "torch==2.5.0",
         'transformers==4.49.0',
         'accelerate==1.4.0',
         'datasets==3.3.2',

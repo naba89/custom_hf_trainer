@@ -11,6 +11,7 @@ from transformers import Trainer, TrainerCallback, TrainingArguments, TrainerSta
 from transformers.debug_utils import DebugOption
 from transformers.modeling_utils import unwrap_model
 from transformers.trainer_utils import speed_metrics
+from transformers.trainer_utils import SaveStrategy
 from transformers.utils import logging
 
 logger = logging.get_logger(__name__)
@@ -93,9 +94,13 @@ class CustomTrainer(Trainer):
         metrics = None
         if self.control.should_evaluate:
             metrics = self._evaluate(trial, ignore_keys_for_eval)
+            is_new_best_metric = self._determine_best_metric(metrics=metrics, trial=trial)
+
+            if self.args.save_strategy == SaveStrategy.BEST:
+                self.control.should_save = is_new_best_metric
 
         if self.control.should_save:
-            self._save_checkpoint(model, trial, metrics=metrics)
+            self._save_checkpoint(model, trial)
             self.control = self.callback_handler.on_save(self.args, self.state, self.control)
 
     def _create_eval_dataloader(self, eval_dataset):
