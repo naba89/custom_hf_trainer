@@ -12,7 +12,7 @@ setup(
     url='https://github.com/naba89/custom_hf_trainer',
     packages=find_packages(),
     install_requires=[
-        "torch==2.5.0",
+        "torch>=2.5.0",
         'transformers==4.49.0',
         'accelerate==1.4.0',
         'datasets==3.3.2',
