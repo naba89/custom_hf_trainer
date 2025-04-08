@@ -1,5 +1,8 @@
 # Custom Hugging Face Trainer
 
+### Update 2025-04-08
+Bumped transformers version to 4.51.0
+
 ### Update 2024-11-30
 Bumped transformers version to 4.46.3
 
