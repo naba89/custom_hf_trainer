@@ -17,12 +17,6 @@ setup(
         'transformers==4.51.0',
         'accelerate',
         'datasets',
-
-        "torch>=2.5.0",
-        'transformers==4.49.0',
-        'accelerate==1.4.0',
-        'datasets==3.3.2',
-
     ],
     classifiers=[
         'Programming Language :: Python :: 3',
