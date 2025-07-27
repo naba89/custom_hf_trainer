@@ -1,17 +1,24 @@
 """Copyright: Nabarun Goswami (2024)."""
 import math
+import os
+import random
 import time
 from typing import Dict, List, Optional, Union
 
 import datasets
+import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset
 from transformers import Trainer, TrainerCallback, TrainingArguments, TrainerState, TrainerControl, \
-    is_torch_xla_available, is_datasets_available
+    is_torch_xla_available, is_datasets_available, is_torch_npu_available, is_torch_hpu_available, \
+    is_torch_mlu_available, is_torch_musa_available
 from transformers.debug_utils import DebugOption
 from transformers.modeling_utils import unwrap_model
+from transformers.trainer import safe_globals
+from transformers.trainer_pt_utils import set_rng_state_for_device
 from transformers.trainer_utils import speed_metrics
 from transformers.trainer_utils import SaveStrategy
+from transformers.training_args import ParallelMode
 from transformers.utils import logging
 
 logger = logging.get_logger(__name__)
